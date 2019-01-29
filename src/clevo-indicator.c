@@ -235,7 +235,12 @@ void autoset_cpu_gpu()
                     fclose(ctrl_file);
                 }
             }
-            double cputemp = ec_query_cpu_temp();
+            double cputemp;
+            for (int tries = 0;tries < 3;tries++)
+            {
+                cputemp = ec_query_cpu_temp();
+                if (cputemp < 100 || cputemp < lastCPU + 20) break;
+            }
 
             int cur_cpu_setting = ec_query_cpu_fan_duty();
 
