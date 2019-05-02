@@ -85,6 +85,9 @@ typedef enum {
     NA = 0, AUTO = 1, MANUAL = 2
 } MenuItemType;
 
+int use_hwmon_interface = 0;
+int hwmon_interface_num = 0;
+
 static void main_init_share(void);
 static int main_ec_worker(void);
 static void main_ui_worker(int argc, char** argv);
@@ -231,7 +234,7 @@ void autoset_cpu_gpu()
                         if (strncmp(buffer, "force_cpu", 7) == 0) sscanf(buffer, "force_cpu %d", &ctrl_setting_force_cpu);
                         if (strncmp(buffer, "force_gpu", 7) == 0) sscanf(buffer, "force_gpu %d", &ctrl_setting_force_gpu);
                     }
-                    printf("Control settings: Offset CPU %d, Offset GPU %d, Min CPU %d, Min GPU %d, Force CPU %d, Force GPU %d\n", ctrl_setting_offset_cpu, ctrl_setting_offset_gpu, ctrl_setting_min_cpu, ctrl_setting_min_gpu, ctrl_setting_force_cpu, ctrl_setting_force_gpu);
+                    printf("Control settings: Offset CPU %d, Offset GPU %d, Min CPU %d, Min GPU %d, Force CPU %d, Force GPU %d (hwmon %d)\n", ctrl_setting_offset_cpu, ctrl_setting_offset_gpu, ctrl_setting_min_cpu, ctrl_setting_min_gpu, ctrl_setting_force_cpu, ctrl_setting_force_gpu, use_hwmon_interface);
                     fclose(ctrl_file);
                 }
             }
@@ -501,6 +504,31 @@ DO NOT MANIPULATE OR QUERY EC I/O PORTS WHILE THIS PROGRAM IS RUNNING.\n\
         close(io_fd);
     }
     else if (strcmp(argv[1], "auto") == 0) {
+        if (getenv("USE_HWMON") && strcmp(getenv("USE_HWMON"), "1") == 0)
+        {
+            use_hwmon_interface = 1;
+            int i = 0;
+            int foundif = 0;
+            while (1)
+            {
+                FILE* fp;
+                char name[1024];
+                sprintf(name, "/sys/class/hwmon/hwmon%d/name", i);
+                fp = fopen(name, "rb");
+                if (fp == 0) break;
+                fgets(name, 1023, fp);
+                fclose(fp);
+                if (strcmp(name, "clevo_xsm_wmi\n") == 0)
+                {
+                    printf("Found clevo interface %d %s", i, name);
+                    hwmon_interface_num = i;
+                    foundif = 1;
+                    break;
+                }
+                i++;
+            };
+            if (!foundif) return EXIT_FAILURE;
+        }
         autoset_cpu_gpu();
     }
     
@@ -763,6 +791,19 @@ static int ec_auto_duty_adjust(void) {
 }
 
 static int ec_query_cpu_temp(void) {
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/temp1_input", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "rb");
+        if (fp == 0) return 99;
+        fgets(name, 1023, fp);
+        fclose(fp);
+        int val;
+        sscanf(name, "%d\n", &val);
+        return(val / 1000);
+    }
     return ec_io_read(EC_REG_CPU_TEMP);
 }
 
@@ -771,22 +812,74 @@ static int ec_query_gpu_temp(void) {
 }
 
 static int ec_query_cpu_fan_duty(void) {
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/pwm1", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "rb");
+        if (fp == 0) return 99;
+        fgets(name, 1023, fp);
+        fclose(fp);
+        int val;
+        sscanf(name, "%d\n", &val);
+        return calculate_fan_duty(val);
+    }
     int raw_duty = ec_io_read(EC_REG_CPU_FAN_DUTY);
     return calculate_fan_duty(raw_duty);
 }
 
 static int ec_query_cpu_fan_rpms(void) {
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/fan1_input", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "rb");
+        if (fp == 0) return 99;
+        fgets(name, 1023, fp);
+        fclose(fp);
+        int val;
+        sscanf(name, "%d\n", &val);
+        return val;
+    }
     int raw_rpm_hi = ec_io_read(EC_REG_CPU_FAN_RPMS_HI);
     int raw_rpm_lo = ec_io_read(EC_REG_CPU_FAN_RPMS_LO);
     return calculate_fan_rpms(raw_rpm_hi, raw_rpm_lo);
 }
 
 static int ec_query_gpu_fan_duty(void) {
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/pwm2", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "rb");
+        if (fp == 0) return 99;
+        fgets(name, 1023, fp);
+        fclose(fp);
+        int val;
+        sscanf(name, "%d\n", &val);
+        return calculate_fan_duty(val);
+    }
     int raw_duty = ec_io_read(EC_REG_GPU_FAN_DUTY);
      return calculate_fan_duty(raw_duty);
 }
 
 static int ec_query_gpu_fan_rpms(void) {
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/fan2_input", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "rb");
+        if (fp == 0) return 99;
+        fgets(name, 1023, fp);
+        fclose(fp);
+        int val;
+        sscanf(name, "%d\n", &val);
+        return val;
+    }
     int raw_rpm_hi = ec_io_read(EC_REG_GPU_FAN_RPMS_HI);
     int raw_rpm_lo = ec_io_read(EC_REG_GPU_FAN_RPMS_LO);
     return calculate_fan_rpms(raw_rpm_hi, raw_rpm_lo);
@@ -799,6 +892,17 @@ static int ec_write_cpu_fan_duty(int duty_percentage) {
     }
     double v_d = ((double) duty_percentage) / 100.0 * 255.0 + 0.5;
     int v_i = (int) v_d;
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/pwm1", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "wb");
+        if (fp == 0) return 99;
+        fprintf(fp, "%d\n", v_i);
+        fclose(fp);
+        return 0;
+    }
     return ec_io_do(0x99, 0x01, v_i);
 }
 
@@ -809,6 +913,17 @@ static int ec_write_gpu_fan_duty(int duty_percentage) {
     }
     double v_d = ((double) duty_percentage) / 100.0 * 255.0 + 0.5;
     int v_i = (int) v_d;
+    if (use_hwmon_interface)
+    {
+        char name[1024];
+        sprintf(name, "/sys/class/hwmon/hwmon%d/pwm2", hwmon_interface_num);
+        FILE* fp;
+        fp = fopen(name, "wb");
+        if (fp == 0) return 99;
+        fprintf(fp, "%d\n", v_i);
+        fclose(fp);
+        return 0;
+    }
     return ec_io_do(0x99, 0x02, v_i);
 }
 
