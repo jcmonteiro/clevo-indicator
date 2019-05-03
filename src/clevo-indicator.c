@@ -195,8 +195,8 @@ void autoset_cpu_gpu()
         //printf("Checking\n");
         if (missing > 5)
         {
-            ec_write_gpu_fan_duty(50);
-            ec_write_cpu_fan_duty(50);
+            ec_write_gpu_fan_duty(70);
+            ec_write_cpu_fan_duty(70);
             exit(1);
         }
         
@@ -244,8 +244,10 @@ void autoset_cpu_gpu()
                 cputemp = ec_query_cpu_temp();
                 if (cputemp < 100 || cputemp < lastCPU + 20) break;
             }
+            if (cputemp < lastCPU - 10) cputemp = lastCPU - 10;
 
             int cur_cpu_setting = ec_query_cpu_fan_duty();
+            int cur_gpu_setting = ec_query_gpu_fan_duty();
 
             double gputemptmp;
             if (gputemp <= 65) gputemptmp = gputemp - 10;
@@ -309,7 +311,7 @@ void autoset_cpu_gpu()
                 doSet[0] = doSet[1] = 1;
                 initial = 0;
             }
-            else if (cur_cpu_setting != current[0])
+            else if (cur_cpu_setting != current[0] || cur_gpu_setting != current[1])
             {
                 doSet[0] = doSet[1] = 1;
                 for (int i = 0;i < 2;i++) if (setDuty[i] < current[i]) setDuty[i] = current[i];
@@ -334,7 +336,7 @@ void autoset_cpu_gpu()
                 lastfail = 0;
             }
 
-            printf("Temperatures C: %f G: %f --> %f %f --> Duty: %d %d (%d)- Set %d %d\n", cputemp, gputemp, avg[0], avg[1], setDuty[0], setDuty[1], cur_cpu_setting, doSet[0], doSet[1]);
+            printf("Temperatures C: %f G: %f --> %f %f --> New Duty: %d (%d) %d (%d) - Activate %d %d\n", cputemp, gputemp, avg[0], avg[1], setDuty[0], cur_cpu_setting, setDuty[1], cur_gpu_setting, doSet[0], doSet[1]);
             
             for (int i = 0;i < 2;i++)
             {
@@ -346,7 +348,13 @@ void autoset_cpu_gpu()
                     {
                         if (i) retVal = ec_write_gpu_fan_duty(setDuty[1]);
                         else retVal = ec_write_cpu_fan_duty(setDuty[0]);
-                        if (retVal == EXIT_SUCCESS) break;
+                        if (retVal == EXIT_SUCCESS)
+                        {
+                            usleep(1100000);
+                            int new_setting = i ? ec_query_gpu_fan_duty() : ec_query_cpu_fan_duty();
+                            if (new_setting == setDuty[i]) break;
+                            printf("Mismatch %d : %d v.s. %d\n", i, new_setting, setDuty[i]);
+                        }
                         printf("Error setting speed, retrying...\n");
                         usleep(50000);
                     }
@@ -358,7 +366,7 @@ void autoset_cpu_gpu()
         {
             missing++;
         }
-        usleep(2000000);
+        usleep(1000000);
     };
 }
 
