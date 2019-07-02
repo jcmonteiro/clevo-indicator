@@ -198,7 +198,7 @@ Usage: clevo-indicator [fan-duty-percentage]\n\
 Dump/Control fan duty on Clevo laptops. Display indicator by default.\n\
 \n\
 Arguments:\n\
-  [fan-duty-percentage]\t\tTarget fan duty in percentage, from 40 to 100\n\
+  [fan-duty-percentage]\t\tTarget fan duty in percentage, from 60 to 100\n\
   -?\t\t\t\tDisplay this help and exit\n\
 \n\
 Without arguments this program should attempt to display an indicator in\n\
@@ -226,7 +226,7 @@ DO NOT MANIPULATE OR QUERY EC I/O PORTS WHILE THIS PROGRAM IS RUNNING.\n\
             return main_dump_fan();
         } else {
             int val = atoi(argv[1]);
-            if (val < 40 || val > 100)
+            if (val < 60 || val > 100)
                     {
                 printf("invalid fan duty %d!\n", val);
                 return EXIT_FAILURE;
@@ -337,14 +337,16 @@ static void main_ui_worker(int argc, char** argv) {
     }
     gtk_widget_show_all(indicator_menu);
     //
-    indicator = app_indicator_new(NAME, "brasero",
+    indicator = app_indicator_new(NAME, "fan",
             APP_INDICATOR_CATEGORY_HARDWARE);
     g_assert(IS_APP_INDICATOR(indicator));
     app_indicator_set_label(indicator, "Init..", "XX");
-    app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ATTENTION);
+    app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);
     app_indicator_set_ordering_index(indicator, -2);
     app_indicator_set_title(indicator, "Clevo");
     app_indicator_set_menu(indicator, GTK_MENU(indicator_menu));
+    char icon_name[] = "indicator_fan.svg";
+    app_indicator_set_icon(indicator, icon_name);
     g_timeout_add(500, &ui_update, NULL);
     ui_toggle_menuitems(share_info->fan_duty);
     gtk_main();
@@ -383,12 +385,7 @@ static int main_test_fan(int duty_percentage) {
 static gboolean ui_update(gpointer user_data) {
     char label[256];
     sprintf(label, "%d℃ %d℃", share_info->cpu_temp, share_info->gpu_temp);
-    app_indicator_set_label(indicator, label, "XXXXXX");
-    char icon_name[256];
-    double load = ((double) share_info->fan_rpms) / MAX_FAN_RPM * 100.0;
-    double load_r = round(load / 5.0) * 5.0;
-    sprintf(icon_name, "brasero-disc-%02d", (int) load_r);
-    app_indicator_set_icon(indicator, icon_name);
+    app_indicator_set_title(indicator, label);
     return G_SOURCE_CONTINUE;
 }
 
@@ -451,7 +448,7 @@ static int ec_auto_duty_adjust(void) {
         return 90;
     if (temp >= 60 && duty < 80)
         return 80;
-    if (temp >= 50 && duty < 70)
+    if (temp >= 55 && duty < 70)
         return 70;
     if (temp >= 40 && duty < 60)
         return 60;
@@ -477,7 +474,7 @@ static int ec_auto_duty_adjust(void) {
     if (temp <= 75 && duty > 90)
         return 90;
     //
-    return 0;
+    return 100;
 }
 
 static int ec_query_cpu_temp(void) {
