@@ -567,7 +567,7 @@ static int main_ec_worker(void) {
         printf("unable to read EC from sysfs: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    while (share_info->exit == 0) {
+    while (share_info->exit == 0 && io_fd > 0) {
         // check parent
         if (parent_pid != 0 && kill(parent_pid, 0) == -1) {
             printf("worker on parent death\n");
@@ -581,7 +581,6 @@ static int main_ec_worker(void) {
             share_info->manual_prev_fan_duty = new_fan_duty;
         }
         // read EC
-        rewind(io_fd);
         unsigned char buf[EC_REG_SIZE];
         ssize_t len = fread(buf, 1, EC_REG_SIZE, io_fd);
         switch (len) {
@@ -594,10 +593,6 @@ static int main_ec_worker(void) {
             share_info->fan_duty = calculate_fan_duty(buf[EC_REG_CPU_FAN_DUTY]);
             share_info->fan_rpms = calculate_fan_rpms(buf[EC_REG_CPU_FAN_RPMS_HI],
                     buf[EC_REG_CPU_FAN_RPMS_LO]);
-            /*
-             printf("temp=%d, duty=%d, rpms=%d\n", share_info->cpu_temp,
-             share_info->fan_duty, share_info->fan_rpms);
-             */
             break;
         default:
             printf("wrong EC size from sysfs: %ld\n", len);
@@ -615,9 +610,12 @@ static int main_ec_worker(void) {
             }
         }
         //
+        fclose(io_fd);
         usleep(200 * 1000);
+        io_fd = fopen("/sys/kernel/debug/ec/ec0/io", "r");
     }
-    fclose(io_fd);
+    if (io_fd > 0)
+        fclose(io_fd);
     printf("worker quit\n");
     return EXIT_SUCCESS;
 }
